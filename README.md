@@ -97,12 +97,3 @@ Along with:
 <img width="1048" height="850" alt="image" src="https://github.com/user-attachments/assets/834cdd0f-12ab-45c2-8fd4-c98a394f5e4c" />
 
 ---
-
-## 📊 Sample Output  
-
-```json
-{
-  "text": "Breaking: Aliens landed on Earth",
-  "result": "Fake",
-  "confidence": 95
-}
