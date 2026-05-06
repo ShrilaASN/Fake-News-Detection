@@ -1,0 +1,480 @@
+import { useState, useEffect, useRef } from "react";
+
+const SCAN_STAGES = [
+  "Extracting linguistic patterns...",
+  "Cross-referencing sources...",
+  "Analyzing sentiment bias...",
+  "Checking factual consistency...",
+  "Scanning for manipulation tactics...",
+  "Verifying credibility signals...",
+  "Computing truth score...",
+];
+
+const VERDICT_CONFIG = {
+  TRUE: {
+    label: "VERIFIED TRUE",
+    color: "#00FF9C",
+    bg: "rgba(0,255,156,0.08)",
+    border: "rgba(0,255,156,0.4)",
+    icon: "✓",
+    desc: "Content appears factually accurate and from credible sources.",
+  },
+  MISLEADING: {
+    label: "MISLEADING",
+    color: "#FFB800",
+    bg: "rgba(255,184,0,0.08)",
+    border: "rgba(255,184,0,0.4)",
+    icon: "⚠",
+    desc: "Contains partial truths mixed with unverified or distorted claims.",
+  },
+  FALSE: {
+    label: "FAKE NEWS",
+    color: "#FF3D5A",
+    bg: "rgba(255,61,90,0.08)",
+    border: "rgba(255,61,90,0.4)",
+    icon: "✕",
+    desc: "High probability of misinformation. Multiple red flags detected.",
+  },
+  UNVERIFIED: {
+    label: "UNVERIFIED",
+    color: "#A78BFA",
+    bg: "rgba(167,139,250,0.08)",
+    border: "rgba(167,139,250,0.4)",
+    icon: "?",
+    desc: "Insufficient data to confirm or deny. Treat with caution.",
+  },
+};
+
+const SAMPLE_ARTICLES = [
+  {
+    label: "Sample: Vaccine Claim",
+    text: "BREAKING: Scientists confirm that the COVID-19 vaccine contains microchips that allow governments to track your location in real time. Multiple whistleblowers have come forward with evidence suppressed by mainstream media. Share before this gets deleted!",
+  },
+  {
+    label: "Sample: Climate Report",
+    text: "According to a new report published in Nature Climate Change, global average temperatures have risen by approximately 1.1°C since pre-industrial times, driven primarily by greenhouse gas emissions from human activities. Scientists warn this trend will accelerate without significant policy intervention.",
+  },
+  {
+    label: "Sample: Election Fraud",
+    text: "Thousands of illegal ballots were discovered in a warehouse in three swing states, but election officials are refusing to investigate. Anonymous sources say the number could be enough to change the outcome of the election. Major networks are ignoring this story.",
+  },
+];
+
+function RadarChart({ scores }) {
+  const cx = 80, cy = 80, r = 55;
+  const labels = ["Bias", "Source", "Logic", "Facts", "Clarity", "Context"];
+  const points = scores.map((s, i) => {
+    const angle = (Math.PI * 2 * i) / labels.length - Math.PI / 2;
+    return {
+      x: cx + r * (s / 100) * Math.cos(angle),
+      y: cy + r * (s / 100) * Math.sin(angle),
+      lx: cx + (r + 18) * Math.cos(angle),
+      ly: cy + (r + 18) * Math.sin(angle),
+    };
+  });
+  const polyPoints = points.map((p) => `${p.x},${p.y}`).join(" ");
+  const gridLevels = [0.25, 0.5, 0.75, 1];
+
+  return (
+    <svg width="160" height="160" viewBox="0 0 160 160">
+      {gridLevels.map((lvl) => {
+        const gp = labels.map((_, i) => {
+          const angle = (Math.PI * 2 * i) / labels.length - Math.PI / 2;
+          return `${cx + r * lvl * Math.cos(angle)},${cy + r * lvl * Math.sin(angle)}`;
+        });
+        return (
+          <polygon
+            key={lvl}
+            points={gp.join(" ")}
+            fill="none"
+            stroke="rgba(255,255,255,0.06)"
+            strokeWidth="1"
+          />
+        );
+      })}
+      {labels.map((_, i) => {
+        const angle = (Math.PI * 2 * i) / labels.length - Math.PI / 2;
+        return (
+          <line
+            key={i}
+            x1={cx}
+            y1={cy}
+            x2={cx + r * Math.cos(angle)}
+            y2={cy + r * Math.sin(angle)}
+            stroke="rgba(255,255,255,0.06)"
+            strokeWidth="1"
+          />
+        );
+      })}
+      <polygon
+        points={polyPoints}
+        fill="rgba(0,212,255,0.15)"
+        stroke="#00D4FF"
+        strokeWidth="1.5"
+      />
+      {points.map((p, i) => (
+        <circle key={i} cx={p.x} cy={p.y} r="3" fill="#00D4FF" />
+      ))}
+      {points.map((p, i) => (
+        <text
+          key={i}
+          x={p.lx}
+          y={p.ly}
+          textAnchor="middle"
+          dominantBaseline="middle"
+          fontSize="7"
+          fill="rgba(255,255,255,0.5)"
+          fontFamily="monospace"
+        >
+          {labels[i]}
+        </text>
+      ))}
+    </svg>
+  );
+}
+
+function ScoreBar({ label, value, color }) {
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    const t = setTimeout(() => setWidth(value), 100);
+    return () => clearTimeout(t);
+  }, [value]);
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+        <span style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", fontFamily: "monospace", textTransform: "uppercase", letterSpacing: 1 }}>{label}</span>
+        <span style={{ fontSize: 11, color, fontFamily: "monospace", fontWeight: 700 }}>{value}%</span>
+      </div>
+      <div style={{ height: 4, background: "rgba(255,255,255,0.06)", borderRadius: 2, overflow: "hidden" }}>
+        <div style={{ height: "100%", width: `${width}%`, background: color, borderRadius: 2, transition: "width 1s ease", boxShadow: `0 0 8px ${color}` }} />
+      </div>
+    </div>
+  );
+}
+
+function TypewriterText({ text, speed = 18 }) {
+  const [displayed, setDisplayed] = useState("");
+  const i = useRef(0);
+  useEffect(() => {
+    i.current = 0;
+    setDisplayed("");
+    const interval = setInterval(() => {
+      if (i.current < text.length) {
+        setDisplayed(text.slice(0, i.current + 1));
+        i.current++;
+      } else clearInterval(interval);
+    }, speed);
+    return () => clearInterval(interval);
+  }, [text]);
+  return <span>{displayed}</span>;
+}
+
+export default function TruthGuard() {
+  const [input, setInput] = useState("");
+  const [inputType, setInputType] = useState("text");
+  const [scanning, setScanning] = useState(false);
+  const [stageIdx, setStageIdx] = useState(0);
+  const [result, setResult] = useState(null);
+  const [scanProgress, setScanProgress] = useState(0);
+  const [history, setHistory] = useState([]);
+  const [tab, setTab] = useState("analyze");
+  const [glitch, setGlitch] = useState(false);
+  const textareaRef = useRef(null);
+
+  useEffect(() => {
+    const id = setInterval(() => setGlitch((g) => !g), 4000);
+    return () => clearInterval(id);
+  }, []);
+
+  async function analyze() {
+    if (!input.trim()) return;
+    setScanning(true);
+    setResult(null);
+    setScanProgress(0);
+    setStageIdx(0);
+
+    let stage = 0;
+    const stageInterval = setInterval(() => {
+      stage++;
+      setStageIdx(stage);
+      setScanProgress(Math.round((stage / SCAN_STAGES.length) * 85));
+      if (stage >= SCAN_STAGES.length - 1) clearInterval(stageInterval);
+    }, 380);
+
+    try {
+      const systemPrompt = `You are TruthGuard, an expert AI misinformation detector. Analyze news content and return ONLY valid JSON. No markdown, no explanation outside JSON.
+
+Return this exact structure:
+{
+  "verdict": "TRUE" | "FALSE" | "MISLEADING" | "UNVERIFIED",
+  "truthScore": <0-100 integer>,
+  "summary": "<2-sentence analysis>",
+  "redFlags": ["<flag1>", "<flag2>", "<flag3>"],
+  "greenFlags": ["<flag1>", "<flag2>"],
+  "radarScores": {
+    "bias": <0-100>,
+    "source": <0-100>,
+    "logic": <0-100>,
+    "facts": <0-100>,
+    "clarity": <0-100>,
+    "context": <0-100>
+  },
+  "categories": ["<category tags like: Health, Politics, Science, etc>"],
+  "manipulation": "<one of: Emotional Appeal, Fear Mongering, False Authority, Cherry Picking, None Detected>",
+  "recommendation": "<one actionable sentence for the reader>"
+}`;
+
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 1000,
+          system: systemPrompt,
+          messages: [{ role: "user", content: `Analyze this ${inputType} content for misinformation:\n\n${input}` }],
+        }),
+      });
+
+      const data = await response.json();
+      const rawText = data.content.map((c) => c.text || "").join("");
+      const clean = rawText.replace(/```json|```/g, "").trim();
+      const parsed = JSON.parse(clean);
+
+      clearInterval(stageInterval);
+      setScanProgress(100);
+
+      setTimeout(() => {
+        setScanning(false);
+        setResult(parsed);
+        setHistory((h) => [{ text: input.slice(0, 80) + "...", verdict: parsed.verdict, score: parsed.truthScore, time: new Date().toLocaleTimeString() }, ...h.slice(0, 4)]);
+      }, 400);
+    } catch (err) {
+      clearInterval(stageInterval);
+      setScanning(false);
+      setResult({
+        verdict: "UNVERIFIED",
+        truthScore: 50,
+        summary: "Analysis encountered an error. Please try again.",
+        redFlags: ["API error occurred"],
+        greenFlags: [],
+        radarScores: { bias: 50, source: 50, logic: 50, facts: 50, clarity: 50, context: 50 },
+        categories: ["Unknown"],
+        manipulation: "None Detected",
+        recommendation: "Please retry the analysis.",
+      });
+    }
+  }
+
+  const verdict = result ? VERDICT_CONFIG[result.verdict] : null;
+  const radarArr = result ? [result.radarScores.bias, result.radarScores.source, result.radarScores.logic, result.radarScores.facts, result.radarScores.clarity, result.radarScores.context] : [];
+
+  return (
+    <div style={{ minHeight: "100vh", background: "#060810", color: "#fff", fontFamily: "'Courier New', monospace", overflow: "hidden", position: "relative" }}>
+      <div style={{ position: "fixed", inset: 0, backgroundImage: "linear-gradient(rgba(0,212,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(0,212,255,0.03) 1px, transparent 1px)", backgroundSize: "40px 40px", pointerEvents: "none" }} />
+      <div style={{ position: "fixed", top: -200, left: -200, width: 500, height: 500, background: "radial-gradient(circle, rgba(0,212,255,0.06) 0%, transparent 70%)", pointerEvents: "none" }} />
+      <div style={{ position: "fixed", bottom: -200, right: -200, width: 500, height: 500, background: "radial-gradient(circle, rgba(255,61,90,0.05) 0%, transparent 70%)", pointerEvents: "none" }} />
+
+      <div style={{ maxWidth: 900, margin: "0 auto", padding: "0 20px 60px" }}>
+        <header style={{ textAlign: "center", padding: "40px 0 32px" }}>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
+            <div style={{ width: 36, height: 36, border: "2px solid #00D4FF", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 0 20px rgba(0,212,255,0.4)", background: "rgba(0,212,255,0.05)" }}>
+              <span style={{ fontSize: 18 }}>🛡</span>
+            </div>
+            <h1 style={{ margin: 0, fontSize: 28, fontWeight: 900, letterSpacing: 6, textTransform: "uppercase", fontFamily: "'Courier New', monospace" }}>
+              <span style={{ color: glitch ? "#00D4FF" : "#fff", textShadow: glitch ? "2px 0 #FF3D5A, -2px 0 #00D4FF" : "none", transition: "all 0.1s" }}>TRUTH</span>
+              <span style={{ color: "#00D4FF", textShadow: "0 0 20px rgba(0,212,255,0.6)" }}>GUARD</span>
+            </h1>
+          </div>
+          <p style={{ margin: "6px 0 0", fontSize: 11, color: "rgba(255,255,255,0.3)", letterSpacing: 4, textTransform: "uppercase" }}>Real-Time Misinformation Detection Engine · v2.4.1</p>
+          <div style={{ display: "flex", gap: 16, justifyContent: "center", marginTop: 14 }}>
+            {["AI-Powered", "NLP Analysis", "Real-Time"].map((tag) => (
+              <span key={tag} style={{ fontSize: 9, color: "#00D4FF", border: "1px solid rgba(0,212,255,0.3)", padding: "3px 10px", borderRadius: 2, letterSpacing: 2, textTransform: "uppercase" }}>{tag}</span>
+            ))}
+          </div>
+        </header>
+
+        <div style={{ display: "flex", gap: 0, marginBottom: 28, borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+          {[["analyze", "ANALYZE"], ["history", `HISTORY (${history.length})`]].map(([key, label]) => (
+            <button key={key} onClick={() => setTab(key)} style={{ background: "none", border: "none", borderBottom: tab === key ? "2px solid #00D4FF" : "2px solid transparent", color: tab === key ? "#00D4FF" : "rgba(255,255,255,0.3)", padding: "10px 24px", cursor: "pointer", fontSize: 11, letterSpacing: 3, textTransform: "uppercase", fontFamily: "monospace", marginBottom: -1 }}>
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {tab === "analyze" && (
+          <>
+            <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+              {[["text", "📄 TEXT / URL"], ["image", "🖼 IMAGE URL"]].map(([type, label]) => (
+                <button key={type} onClick={() => setInputType(type)} style={{ background: inputType === type ? "rgba(0,212,255,0.1)" : "transparent", border: `1px solid ${inputType === type ? "rgba(0,212,255,0.5)" : "rgba(255,255,255,0.08)"}`, color: inputType === type ? "#00D4FF" : "rgba(255,255,255,0.4)", padding: "8px 18px", borderRadius: 4, cursor: "pointer", fontSize: 11, letterSpacing: 2, fontFamily: "monospace" }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+              {SAMPLE_ARTICLES.map((s) => (
+                <button key={s.label} onClick={() => setInput(s.text)} style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", color: "rgba(255,255,255,0.35)", padding: "5px 12px", borderRadius: 3, cursor: "pointer", fontSize: 10, letterSpacing: 1, fontFamily: "monospace" }}>
+                  {s.label}
+                </button>
+              ))}
+            </div>
+
+            <div style={{ position: "relative", marginBottom: 16 }}>
+              <div style={{ position: "absolute", top: 12, left: 14, fontSize: 10, color: "rgba(0,212,255,0.4)", letterSpacing: 2, pointerEvents: "none" }}>INPUT {">"}</div>
+              <textarea
+                ref={textareaRef}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder={inputType === "text" ? "Paste news article, headline, social media post, or URL..." : "Paste image URL for visual analysis..."}
+                rows={5}
+                style={{ width: "100%", background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 6, color: "#fff", padding: "36px 14px 14px", fontFamily: "monospace", fontSize: 13, resize: "vertical", outline: "none", boxSizing: "border-box", lineHeight: 1.6, caretColor: "#00D4FF" }}
+                onFocus={(e) => (e.target.style.borderColor = "rgba(0,212,255,0.4)")}
+                onBlur={(e) => (e.target.style.borderColor = "rgba(255,255,255,0.08)")}
+              />
+              <div style={{ position: "absolute", bottom: 12, right: 14, fontSize: 10, color: "rgba(255,255,255,0.2)" }}>{input.length} chars</div>
+            </div>
+
+            <button
+              onClick={analyze}
+              disabled={scanning || !input.trim()}
+              style={{ width: "100%", padding: "14px", background: scanning ? "rgba(0,212,255,0.05)" : "rgba(0,212,255,0.1)", border: `1px solid ${scanning ? "rgba(0,212,255,0.2)" : "rgba(0,212,255,0.5)"}`, color: scanning ? "rgba(0,212,255,0.5)" : "#00D4FF", fontFamily: "monospace", fontSize: 13, letterSpacing: 4, textTransform: "uppercase", cursor: scanning ? "not-allowed" : "pointer", borderRadius: 6, boxShadow: scanning ? "none" : "0 0 20px rgba(0,212,255,0.1)", transition: "all 0.3s" }}
+            >
+              {scanning ? "SCANNING..." : "⟳ ANALYZE CONTENT"}
+            </button>
+
+            {scanning && (
+              <div style={{ marginTop: 24, background: "rgba(0,212,255,0.03)", border: "1px solid rgba(0,212,255,0.1)", borderRadius: 8, padding: 24 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
+                  <span style={{ fontSize: 10, color: "rgba(0,212,255,0.7)", letterSpacing: 2 }}>ANALYZING</span>
+                  <span style={{ fontSize: 10, color: "#00D4FF", letterSpacing: 2 }}>{scanProgress}%</span>
+                </div>
+                <div style={{ height: 2, background: "rgba(255,255,255,0.05)", borderRadius: 1, marginBottom: 20, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${scanProgress}%`, background: "linear-gradient(90deg, #00D4FF, #00FF9C)", transition: "width 0.4s ease", boxShadow: "0 0 8px #00D4FF" }} />
+                </div>
+                {SCAN_STAGES.map((stage, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6, opacity: i <= stageIdx ? 1 : 0.2, transition: "opacity 0.3s" }}>
+                    <span style={{ fontSize: 10, color: i < stageIdx ? "#00FF9C" : i === stageIdx ? "#00D4FF" : "rgba(255,255,255,0.2)" }}>
+                      {i < stageIdx ? "✓" : i === stageIdx ? "▶" : "○"}
+                    </span>
+                    <span style={{ fontSize: 11, color: i === stageIdx ? "#fff" : "rgba(255,255,255,0.3)", letterSpacing: 1 }}>{stage}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {result && verdict && (
+              <div style={{ marginTop: 28 }}>
+                <div style={{ background: verdict.bg, border: `1px solid ${verdict.border}`, borderRadius: 8, padding: "20px 24px", marginBottom: 20, display: "flex", alignItems: "center", gap: 20 }}>
+                  <div style={{ width: 56, height: 56, borderRadius: "50%", border: `2px solid ${verdict.color}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, color: verdict.color, boxShadow: `0 0 24px ${verdict.color}40`, flexShrink: 0 }}>
+                    {verdict.icon}
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 4 }}>
+                      <span style={{ fontSize: 20, fontWeight: 900, color: verdict.color, letterSpacing: 3 }}>{verdict.label}</span>
+                      <span style={{ fontSize: 28, fontWeight: 900, color: verdict.color }}>{result.truthScore}</span>
+                      <span style={{ fontSize: 11, color: "rgba(255,255,255,0.3)" }}>/ 100</span>
+                    </div>
+                    <p style={{ margin: 0, fontSize: 12, color: "rgba(255,255,255,0.5)", lineHeight: 1.5 }}>{verdict.desc}</p>
+                  </div>
+                  <div style={{ textAlign: "right", flexShrink: 0 }}>
+                    {result.categories?.map((c) => (
+                      <span key={c} style={{ display: "block", fontSize: 9, color: "rgba(255,255,255,0.3)", border: "1px solid rgba(255,255,255,0.08)", padding: "2px 8px", borderRadius: 2, marginBottom: 4, letterSpacing: 1 }}>{c}</span>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 6, padding: 16, marginBottom: 16 }}>
+                  <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)", letterSpacing: 3, marginBottom: 8 }}>ANALYSIS SUMMARY</div>
+                  <p style={{ margin: 0, fontSize: 13, color: "rgba(255,255,255,0.75)", lineHeight: 1.7 }}>
+                    <TypewriterText text={result.summary} />
+                  </p>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+                  <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 6, padding: 16, display: "flex", flexDirection: "column", alignItems: "center" }}>
+                    <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)", letterSpacing: 3, marginBottom: 8, alignSelf: "flex-start" }}>CREDIBILITY RADAR</div>
+                    <RadarChart scores={radarArr} />
+                  </div>
+                  <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 6, padding: 16 }}>
+                    <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)", letterSpacing: 3, marginBottom: 16 }}>SIGNAL BREAKDOWN</div>
+                    <ScoreBar label="Bias Detection" value={result.radarScores.bias} color="#00D4FF" />
+                    <ScoreBar label="Source Quality" value={result.radarScores.source} color="#00FF9C" />
+                    <ScoreBar label="Logical Coherence" value={result.radarScores.logic} color="#A78BFA" />
+                    <ScoreBar label="Factual Accuracy" value={result.radarScores.facts} color="#FFB800" />
+                    <ScoreBar label="Clarity" value={result.radarScores.clarity} color="#00D4FF" />
+                  </div>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+                  <div style={{ background: "rgba(255,61,90,0.04)", border: "1px solid rgba(255,61,90,0.15)", borderRadius: 6, padding: 16 }}>
+                    <div style={{ fontSize: 9, color: "#FF3D5A", letterSpacing: 3, marginBottom: 12 }}>⚑ RED FLAGS</div>
+                    {result.redFlags?.length ? result.redFlags.map((f, i) => (
+                      <div key={i} style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                        <span style={{ color: "#FF3D5A", fontSize: 11, flexShrink: 0 }}>▸</span>
+                        <span style={{ fontSize: 11, color: "rgba(255,255,255,0.55)", lineHeight: 1.5 }}>{f}</span>
+                      </div>
+                    )) : <span style={{ fontSize: 11, color: "rgba(255,255,255,0.3)" }}>None detected</span>}
+                  </div>
+                  <div style={{ background: "rgba(0,255,156,0.04)", border: "1px solid rgba(0,255,156,0.15)", borderRadius: 6, padding: 16 }}>
+                    <div style={{ fontSize: 9, color: "#00FF9C", letterSpacing: 3, marginBottom: 12 }}>✓ GREEN FLAGS</div>
+                    {result.greenFlags?.length ? result.greenFlags.map((f, i) => (
+                      <div key={i} style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                        <span style={{ color: "#00FF9C", fontSize: 11, flexShrink: 0 }}>▸</span>
+                        <span style={{ fontSize: 11, color: "rgba(255,255,255,0.55)", lineHeight: 1.5 }}>{f}</span>
+                      </div>
+                    )) : <span style={{ fontSize: 11, color: "rgba(255,255,255,0.3)" }}>None detected</span>}
+                  </div>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                  <div style={{ background: "rgba(167,139,250,0.04)", border: "1px solid rgba(167,139,250,0.15)", borderRadius: 6, padding: 16 }}>
+                    <div style={{ fontSize: 9, color: "#A78BFA", letterSpacing: 3, marginBottom: 8 }}>MANIPULATION TACTIC</div>
+                    <p style={{ margin: 0, fontSize: 13, color: "#A78BFA", fontWeight: 700 }}>{result.manipulation}</p>
+                  </div>
+                  <div style={{ background: "rgba(255,184,0,0.04)", border: "1px solid rgba(255,184,0,0.15)", borderRadius: 6, padding: 16 }}>
+                    <div style={{ fontSize: 9, color: "#FFB800", letterSpacing: 3, marginBottom: 8 }}>RECOMMENDATION</div>
+                    <p style={{ margin: 0, fontSize: 11, color: "rgba(255,255,255,0.6)", lineHeight: 1.5 }}>{result.recommendation}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {tab === "history" && (
+          <div>
+            {history.length === 0 ? (
+              <div style={{ textAlign: "center", padding: 60, color: "rgba(255,255,255,0.2)", fontSize: 12, letterSpacing: 2 }}>NO SCANS YET</div>
+            ) : (
+              history.map((h, i) => {
+                const v = VERDICT_CONFIG[h.verdict];
+                return (
+                  <div key={i} style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 6, padding: 16, marginBottom: 10, display: "flex", alignItems: "center", gap: 16 }}>
+                    <span style={{ fontSize: 16, color: v.color, width: 24, textAlign: "center" }}>{v.icon}</span>
+                    <div style={{ flex: 1 }}>
+                      <p style={{ margin: "0 0 4px", fontSize: 12, color: "rgba(255,255,255,0.6)" }}>{h.text}</p>
+                      <span style={{ fontSize: 10, color: v.color, letterSpacing: 2 }}>{v.label}</span>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ fontSize: 18, fontWeight: 900, color: v.color }}>{h.score}</div>
+                      <div style={{ fontSize: 9, color: "rgba(255,255,255,0.2)" }}>{h.time}</div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        )}
+      </div>
+
+      <style>{`
+        * { box-sizing: border-box; }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(0,212,255,0.2); border-radius: 2px; }
+        textarea::placeholder { color: rgba(255,255,255,0.15); }
+        @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.5; } }
+      `}</style>
+    </div>
+  );
+}
